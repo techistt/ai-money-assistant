@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayPal AI Money Assistant</title>
+<style>
+  :root { --bg:#f5f7fa; --card:#fff; --ink:#1a2233; --muted:#667085; --brand:#003087; --accent:#0070e0; --line:#e4e7ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1420; --card:#171d2b; --ink:#e8ecf4; --muted:#98a2b3; --brand:#6ea8ff; --accent:#3b8cff; --line:#273046; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--ink); height:100dvh; display:flex; flex-direction:column; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  header h1 { font-size:17px; margin:0; color:var(--brand); }
+  #badge { font-size:12px; padding:3px 8px; border-radius:99px; background:var(--line); color:var(--muted); white-space:nowrap; }
+  #chips { display:flex; gap:8px; padding:10px 16px; overflow-x:auto; }
+  .chip { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:99px; padding:8px 14px; font-size:14px; white-space:nowrap; cursor:pointer; }
+  .chip:hover { border-color:var(--accent); }
+  #log { flex:1; overflow-y:auto; padding:8px 16px 16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:min(680px,88%); padding:10px 14px; border-radius:14px; white-space:pre-wrap; word-wrap:break-word; }
+  .user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+  .bot { align-self:flex-start; background:var(--card); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .links { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .links a { display:block; padding:8px 12px; border-radius:10px; background:var(--brand); color:#fff; text-decoration:none; font-size:14px; }
+  .thumb { max-width:160px; border-radius:8px; display:block; margin-bottom:6px; }
+  form { display:flex; gap:8px; padding:10px 16px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:var(--card); }
+  input[type=text] { flex:1; min-width:0; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); font-size:16px; }
+  button { border:0; border-radius:10px; padding:0 16px; font-size:15px; cursor:pointer; }
+  #send { background:var(--accent); color:#fff; }
+  #attach { background:var(--line); color:var(--ink); }
+  #pending { font-size:12px; color:var(--muted); padding:0 16px 4px; }
+</style>
+</head>
+<body>
+<header><h1>PayPal AI Money Assistant</h1><span id="badge">…</span></header>
+<div id="chips">
+  <button class="chip" data-q="Invoice acme@example.com for 3 hours of design work at $80/hour, due in 14 days">🧾 Invoice</button>
+  <button class="chip" data-q="Show my overdue invoices and draft friendly reminders for them">⏰ Overdue</button>
+  <button class="chip" data-q="Find me a wireless headphone under $70 and set up checkout">🛒 Shop</button>
+  <button class="chip" data-q="Analyze my last 30 days of PayPal activity: income, spending by category, and anything unusual">📊 Insights</button>
+  <button class="chip" data-q="Split a $96 dinner with 8.5% tax and 18% tip between Sam (sam@example.com), Alex (alex@example.com) and me (me@example.com), equally">🍽️ Split bill</button>
+</div>
+<div id="log"></div>
+<div id="pending"></div>
+<form id="f">
+  <input type="file" id="file" accept="image/*" hidden>
+  <button type="button" id="attach" title="Attach receipt photo">📷</button>
+  <input type="text" id="q" placeholder="Ask about invoices, shopping, spending, or splitting a bill" autocomplete="off">
+  <button id="send">Send</button>
+</form>
+<script>
+const log = document.getElementById('log'), q = document.getElementById('q'), pending = document.getElementById('pending');
+const sessionId = (() => { try { return localStorage.sid || (localStorage.sid = crypto.randomUUID()); } catch { return 'anon-' + Date.now(); } })();
+let image = null;
+
+fetch('/api/status').then(r => r.json()).then(s => {
+  document.getElementById('badge').textContent = `PayPal: ${s.paypal}${s.ai ? '' : ' · no AI key'}`;
+});
+
+function add(cls, text, links = [], thumb) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls;
+  if (thumb) { const i = document.createElement('img'); i.src = thumb; i.className = 'thumb'; d.appendChild(i); }
+  d.appendChild(document.createTextNode(text));
+  if (links.length) {
+    const l = document.createElement('div'); l.className = 'links';
+    links.forEach(x => { const a = document.createElement('a'); a.href = x.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = x.label + ' ↗'; l.appendChild(a); });
+    d.appendChild(l);
+  }
+  log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
+}
+
+add('bot', 'Hi! I can create invoices, chase overdue ones, find and check out products, analyze your PayPal activity, and split bills (even from a receipt photo). Tap a shortcut or type a request.');
+
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => { q.value = c.dataset.q; q.focus(); });
+document.getElementById('attach').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { image = { media_type: f.type, data: r.result.split(',')[1], url: r.result }; pending.textContent = '📎 ' + f.name + ' attached'; };
+  r.readAsDataURL(f);
+};
+
+document.getElementById('f').onsubmit = async e => {
+  e.preventDefault();
+  const message = q.value.trim(); if (!message && !image) return;
+  const img = image; image = null; pending.textContent = ''; q.value = '';
+  add('user', message || 'Split this receipt', [], img?.url);
+  const wait = add('bot', 'Working…');
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, message, image: img && { media_type: img.media_type, data: img.data } }) });
+    const j = await res.json(); wait.remove(); add('bot', j.reply, j.links || []);
+  } catch (err) { wait.remove(); add('bot', 'Network error: ' + err.message); }
+};
+</script>
+</body>
+</html>
